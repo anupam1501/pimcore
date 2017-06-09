@@ -109,6 +109,8 @@ class MigrationProcessor
             return;
         }
 
+        dump(array_keys($this->map));
+
         $blockNames            = $this->getBlockNames();
         $blockParentCandidates = $this->findBlockParentCandidates($blockNames);
         $blockParents          = $this->resolveBlockParents($blockParentCandidates);
@@ -136,20 +138,59 @@ class MigrationProcessor
         return $editables;
     }
 
+    /**
+     * @param string $name
+     * @param Block[] $blocks
+     *
+     * @return Editable
+     */
     private function buildEditable(string $name, array $blocks): Editable
     {
-        $parent = null;
+        /** @var Editable[] $editables */
+        $editables = [];
+
         foreach ($blocks as $block) {
             $matchString = $block->getEditableMatchString();
             $pattern     = '/^(?<realName>.+)' . self::escapeRegexString($matchString) . '(?<indexes>[\d_]*)$/';
 
             if (preg_match($pattern, $name, $matches)) {
-                $parent = $block;
-                break;
+                try {
+                    $editables[] = new Editable($name, $this->map[$name], $block);
+                } catch (\Exception $e) {
+                }
             }
         }
 
-        return new Editable($name, $this->map[$name], $parent);
+        if (count($editables) === 0) {
+            throw new \RuntimeException(sprintf(
+                'Failed to build an editable for element "%s"',
+                $name
+            ));
+        } elseif (count($editables) > 1) {
+            $parentNames = array_map(function (Editable $ed) {
+                return $ed->getParent() ? $ed->getParent()->getName() : null;
+            }, $editables);
+
+            $nestedStrategy = \Pimcore::getContainer()->get('pimcore.document.tag.naming.strategy.nested');
+            $legacyStrategy = \Pimcore::getContainer()->get('pimcore.document.tag.naming.strategy.legacy');
+
+            foreach ($editables as $editable) {
+                dump([
+                    'editable'   => $editable,
+                    'nestedName' => $editable->getNameForStrategy($nestedStrategy),
+                    'legacyName' => $editable->getNameForStrategy($legacyStrategy),
+                ]);
+            }
+
+            throw new \LogicException(sprintf(
+                'Ambiguous results. Built %d editables for element "%s". Parents: %s',
+                count($editables),
+                $name,
+                json_encode($parentNames)
+            ));
+        }
+
+        return $editables[0];
     }
 
     private function buildBlocks(array $blockNames, array $blockParents): array
@@ -297,16 +338,46 @@ class MigrationProcessor
     }
 
     /**
-     * Get blocks sorted by deepest level first
+     * Get blocks sorted by deepest level first. If they are on the same level,
+     * prefer those which have a number at the end (mitigates errors when
+     * having blocks named something like "content" and "content1" simultaneosly
      *
      * @return Block[]
      */
     private function getBlocksSortedByLevel(): array
     {
+        $compareByTrailingNumber = function (string $a, string $b): int {
+            $numberPattern = '/(?<number>\d+)$/';
+
+            $matchesA = (bool)preg_match($numberPattern, $a, $aMatches);
+            $matchesB = (bool)preg_match($numberPattern, $b, $bMatches);
+
+            if ($matchesA && !$matchesB) {
+                return -1;
+            }
+
+            if (!$matchesA && $matchesB) {
+                return 1;
+            }
+
+            if ($matchesA && $matchesB) {
+                $aLen = strlen((string)$aMatches['number']);
+                $bLen = strlen((string)$bMatches['number']);
+
+                if ($aLen === $bLen) {
+                    return 0;
+                }
+
+                return $aLen > $bLen ? -1 : 1;
+            }
+
+            return 0;
+        };
+
         $blocks = $this->blocks;
-        uasort($blocks, function(Block $a, Block $b) {
+        uasort($blocks, function(Block $a, Block $b) use ($compareByTrailingNumber) {
             if ($a->getLevel() === $b->getLevel()) {
-                return 0;
+                return $compareByTrailingNumber($a->getRealName(), $b->getRealName());
             }
 
             return $a->getLevel() < $b->getLevel() ? 1 : -1;

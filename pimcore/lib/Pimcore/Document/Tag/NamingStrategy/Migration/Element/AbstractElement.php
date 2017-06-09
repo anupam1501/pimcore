@@ -27,43 +27,40 @@ abstract class AbstractElement
     /**
      * @var string
      */
-    protected $name;
+    private $name;
 
     /**
      * @var string
      */
-    protected $realName;
+    private $realName;
 
     /**
      * @var string
      */
-    protected $type;
+    private $type;
 
     /**
      * @var int|null
      */
-    protected $index;
+    private $index;
 
     /**
      * @var Block|null
      */
-    protected $parent;
+    private $parent;
 
     /**
      * @var Block[]
      */
-    protected $parents;
-
-    /**
-     * @var bool
-     */
-    private $processed = false;
+    private $parents = [];
 
     public function __construct(string $name, string $type, Block $parent = null)
     {
-        $this->name   = $name;
-        $this->type   = $type;
-        $this->parent = $parent;
+        $this->name = $name;
+        $this->type = $type;
+
+        // process and validate parent
+        $this->setParent($parent);
     }
 
     public function getName(): string
@@ -73,14 +70,9 @@ abstract class AbstractElement
 
     public function getRealName(): string
     {
-        $this->process();
-
         return $this->realName;
     }
 
-    /**
-     * @return string
-     */
     public function getType(): string
     {
         return $this->type;
@@ -91,11 +83,12 @@ abstract class AbstractElement
      */
     public function getIndex()
     {
-        $this->process();
-
         return $this->index;
     }
 
+    /**
+     * @return Block|null
+     */
     public function getParent()
     {
         return $this->parent;
@@ -106,20 +99,6 @@ abstract class AbstractElement
      */
     public function getParents(): array
     {
-        if (null !== $this->parents) {
-            return $this->parents;
-        }
-
-        $parents = [];
-        $parent  = $this->parent;
-
-        while (null !== $parent) {
-            $parents[] = $parent;
-            $parent    = $parent->getParent();
-        }
-
-        $this->parents = array_reverse($parents);
-
         return $this->parents;
     }
 
@@ -153,28 +132,19 @@ abstract class AbstractElement
         return $strategy->buildTagName($this->getRealName(), $this->getType(), $blockState);
     }
 
-    private function process()
+    private function setParent(Block $parent = null)
     {
-        if ($this->processed) {
-            return;
-        }
-
         // no parent (root level): we have no index and the realName is the
         // same as the full name
-        if (null === $this->parent) {
-            $this->index     = null;
-            $this->realName  = $this->name;
-            $this->processed = true;
+        if (null === $parent) {
+            $this->realName = $this->name;
+            $this->index    = null;
+            $this->parent   = null;
+            $this->parents  = [];
 
             return;
         }
 
-        $this->processHierarchy();
-        $this->processed = true;
-    }
-
-    protected function processHierarchy()
-    {
         // find parent names and build pattern to match against
         // e.g.:
         //
@@ -185,42 +155,64 @@ abstract class AbstractElement
         // the string between the real name and the index suffix is built
         // from parent block names
 
-        $parentIndexes    = [];
-        $namePatternParts = [];
+        $parentList      = $this->buildParentList($parent);
+        $parentIndexes   = [];
+        $parentNameParts = [];
 
-        foreach ($this->getParents() as $parent) {
-            $namePatternParts[] = $parent->getName();
+        foreach ($parentList as $currentParent) {
+            $parentNameParts[] = $currentParent->getName();
 
-            if (null !== $parentIndex = $parent->getIndex()) {
-                $parentIndexes[] = $parent->getIndex();
+            if (null !== $currentParentIndex = $currentParent->getIndex()) {
+                $parentIndexes[] = $currentParentIndex;
             }
         }
 
-        $namePatternParts = array_reverse($namePatternParts);
+        /*
+        if (null === $parent->getIndex()) {
+            throw new \LogicException(sprintf(
+                'The parent element for "%s" has no index. Parent is "%s"',
+                $this->name,
+                $parent->getName()
+            ));
+        }
+        */
 
-        $namePattern = implode('_', array_reverse($namePatternParts));
-        $pattern     = '/^(?<realName>.+)' . MigrationProcessor::escapeRegexString($namePattern) . '(?<indexes>[\d_]*)$/';
+        $parentNameParts = array_reverse($parentNameParts);
+        $parentNames     = implode('_', array_reverse($parentNameParts));
+        $pattern         = '/^(?<realName>.+)' . MigrationProcessor::escapeRegexString($parentNames) . '(?<indexes>[\d_]*)$/';
 
-        // TODO fail if preg_match_all returns more than 1 result?
-        if (!preg_match($pattern, $this->name, $matches)) {
+        if (!preg_match_all($pattern, $this->name, $matches, PREG_SET_ORDER)) {
             throw new \LogicException(sprintf(
                 'Failed to match "%s" against pattern "%s"',
                 $this->name, $pattern
             ));
         }
 
-        $this->realName = (string)$matches['realName'];
+        if (count($matches) === 0) {
+            throw new \LogicException(sprintf(
+                'No matches found for name "%s" and pattern "%s"',
+                $this->name, $pattern
+            ));
+        } elseif (count($matches) > 1) {
+            throw new \LogicException(sprintf(
+                'Ambiguous amount of %s matches found for name "%s" and pattern "%s"',
+                count($matches),
+                $this->name, $pattern
+            ));
+        }
+
+        $match    = $matches[0];
+        $realName = (string)$match['realName'];
+        $index    = null;
 
         // get index from index suffix and check if remaining indexes match parent indexes
-        if (empty($matches['indexes'])) {
-            $this->index = null;
-        } else {
-            $indexes = explode('_', $matches['indexes']);
+        if (!empty($match['indexes'])) {
+            $indexes = explode('_', $match['indexes']);
             $indexes = array_map(function ($index) {
                 return (int)$index;
             }, $indexes);
 
-            $this->index = array_pop($indexes);
+            $index = array_pop($indexes);
 
             // check if remaining indexes match with parent indexes
             // e.g. indexes resulted in 3_2_1 -> our index is 1 and we expect
@@ -234,5 +226,35 @@ abstract class AbstractElement
                 ));
             }
         }
+
+        if (null === $index) {
+            throw new \LogicException(sprintf(
+                'Nested element "%s" is expected to have an index, but no index was found',
+                $this->name
+            ));
+        }
+
+        $this->parent   = $parent;
+        $this->parents  = $parentList;
+        $this->realName = $realName;
+        $this->index    = $index;
+    }
+
+    /**
+     * @param Block|null $parent
+     *
+     * @return Block[]
+     */
+    private function buildParentList(Block $parent): array
+    {
+        $parents = [];
+        while (null !== $parent) {
+            $parents[] = $parent;
+            $parent    = $parent->getParent();
+        }
+
+        $parents = array_reverse($parents);
+
+        return $parents;
     }
 }

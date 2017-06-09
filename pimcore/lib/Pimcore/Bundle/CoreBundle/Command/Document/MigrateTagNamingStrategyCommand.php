@@ -111,12 +111,33 @@ class MigrateTagNamingStrategyCommand extends AbstractCommand
         ]);
 
         $processor = new MigrationProcessor();
+        $strategy = $this->getContainer()->get('pimcore.document.tag.naming.strategy.nested');
 
         foreach ($result as $row) {
             $processor->add($row['name'], $row['type']);
         }
 
-        $strategy = $this->getContainer()->get('pimcore.document.tag.naming.strategy.nested');
+        $table = new Table($this->io->getOutput());
+        $table->setHeaders(['old', 'new']);
+
+        foreach ($result as $row) {
+            $element = $processor->getElement($row['name']);
+
+            $table->addRow([
+                $element->getName(),
+                $element->getNameForStrategy($strategy)
+            ]);
+        }
+
+        $table->render();
+
+
+
+        return;
+
+        $element = $processor->getElement('contentcontent1_blockcontent133_1');
+        $processor->debugElement($element);
+
 
         dump(count($result));
         dump(count($processor->getElements()));
