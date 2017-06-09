@@ -17,13 +17,16 @@ declare(strict_types=1);
 
 namespace Pimcore\Document\Tag\NamingStrategy\Migration\Element;
 
-final class Block extends AbstractBlock
+final class Areablock extends AbstractBlock
 {
     protected function resolveChildIndexes(array $data): array
     {
-        // block indexes is just a plain array of indexes
-        return array_map(function ($index) {
-            return (int)$index;
-        }, array_values($data));
+        // areablock indexes are rows with key and type
+        $indexes = [];
+        foreach ($data as $item) {
+            $indexes[] = (int)$item['key'];
+        }
+
+        return $indexes;
     }
 }

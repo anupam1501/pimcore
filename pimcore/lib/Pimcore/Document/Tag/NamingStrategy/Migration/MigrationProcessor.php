@@ -17,7 +17,9 @@ declare(strict_types=1);
 
 namespace Pimcore\Document\Tag\NamingStrategy\Migration;
 
+use Pimcore\Document\Tag\NamingStrategy\Migration\Element\AbstractBlock;
 use Pimcore\Document\Tag\NamingStrategy\Migration\Element\AbstractElement;
+use Pimcore\Document\Tag\NamingStrategy\Migration\Element\Areablock;
 use Pimcore\Document\Tag\NamingStrategy\Migration\Element\Block;
 use Pimcore\Document\Tag\NamingStrategy\Migration\Element\Editable;
 
@@ -31,7 +33,12 @@ class MigrationProcessor
     private $map = [];
 
     /**
-     * @var Block[]
+     * @var array
+     */
+    private $blockData = [];
+
+    /**
+     * @var AbstractBlock[]
      */
     private $blocks = [];
 
@@ -53,20 +60,43 @@ class MigrationProcessor
     /**
      * @var array
      */
-    private $blockTypes = ['block', 'areablock'];
+    private $blockTypes = [
+        'block'     => Block::class,
+        'areablock' => Areablock::class
+    ];
 
     /**
      * Add an element mapping
      *
      * @param string $name
      * @param string $type
+     * @param mixed $data
      */
-    public function add(string $name, string $type)
+    public function add(string $name, string $type, $data)
     {
         $this->map[$name] = $type;
         ksort($this->map);
 
+        if ($this->isBlock($type)) {
+            $this->addBlockData($name, $data);
+        }
+
         $this->reset();
+    }
+
+    /**
+     * @param string $name
+     * @param mixed $data
+     */
+    private function addBlockData(string $name, $data)
+    {
+        if (!empty($data)) {
+            $data = unserialize($data);
+        } else {
+            $data = [];
+        }
+
+        $this->blockData[$name] = $data;
     }
 
     /**
@@ -140,24 +170,35 @@ class MigrationProcessor
 
     /**
      * @param string $name
-     * @param Block[] $blocks
+     * @param AbstractBlock[] $blocks
      *
      * @return Editable
      */
     private function buildEditable(string $name, array $blocks): Editable
     {
-        /** @var Editable[] $editables */
-        $editables = [];
-
+        $parentBlocks = [];
         foreach ($blocks as $block) {
             $matchString = $block->getEditableMatchString();
             $pattern     = '/^(?<realName>.+)' . self::escapeRegexString($matchString) . '(?<indexes>[\d_]*)$/';
 
             if (preg_match($pattern, $name, $matches)) {
-                try {
-                    $editables[] = new Editable($name, $this->map[$name], $block);
-                } catch (\Exception $e) {
-                }
+                $parentBlocks[] = $block;
+            }
+        }
+
+        // no parent blocks -> root element without parent
+        if (count($parentBlocks) === 0) {
+            return new Editable($name, $this->map[$name]);
+        }
+
+        /** @var Editable[] $editables */
+        $editables = [];
+
+        foreach ($parentBlocks as $parentBlock) {
+            try {
+                $editables[] = new Editable($name, $this->map[$name], $parentBlock);
+            } catch (\Exception $e) {
+                dump('ERROR: ' . $e->getMessage());
             }
         }
 
@@ -228,7 +269,14 @@ class MigrationProcessor
                 $parent = $blocks[$lastParentName];
             }
 
-            $blocks[$blockName] = new Block($blockName, $this->map[$blockName], $parent);
+            $blockType = $this->map[$blockName];
+            if (!isset($this->blockTypes[$blockType])) {
+                throw new \InvalidArgumentException(sprintf('Invalid block type "%s"', $blockType));
+            }
+
+            $blockClass = $this->blockTypes[$blockType];
+
+            $blocks[$blockName] = new $blockClass($blockName, $this->map[$blockName], $this->blockData[$blockName], $parent);
         }
 
         return $blocks;
@@ -342,7 +390,7 @@ class MigrationProcessor
      * prefer those which have a number at the end (mitigates errors when
      * having blocks named something like "content" and "content1" simultaneosly
      *
-     * @return Block[]
+     * @return AbstractBlock[]
      */
     private function getBlocksSortedByLevel(): array
     {
@@ -375,7 +423,7 @@ class MigrationProcessor
         };
 
         $blocks = $this->blocks;
-        uasort($blocks, function(Block $a, Block $b) use ($compareByTrailingNumber) {
+        uasort($blocks, function(AbstractBlock $a, AbstractBlock $b) use ($compareByTrailingNumber) {
             if ($a->getLevel() === $b->getLevel()) {
                 return $compareByTrailingNumber($a->getRealName(), $b->getRealName());
             }
@@ -405,7 +453,7 @@ class MigrationProcessor
 
     private function isBlock(string $type): bool
     {
-        return in_array($type, $this->blockTypes);
+        return in_array($type, array_keys($this->blockTypes));
     }
 
     public static function escapeRegexString(string $string): string

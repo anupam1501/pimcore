@@ -106,7 +106,7 @@ class MigrateTagNamingStrategyCommand extends AbstractCommand
         $documentId = 74;
 
         $db     = $this->getContainer()->get('database_connection');
-        $result = $db->fetchAll('SELECT name, type FROM documents_elements WHERE documentId = :documentId', [
+        $result = $db->fetchAll('SELECT name, type, data FROM documents_elements WHERE documentId = :documentId', [
             'documentId' => $documentId
         ]);
 
@@ -114,7 +114,7 @@ class MigrateTagNamingStrategyCommand extends AbstractCommand
         $strategy = $this->getContainer()->get('pimcore.document.tag.naming.strategy.nested');
 
         foreach ($result as $row) {
-            $processor->add($row['name'], $row['type']);
+            $processor->add($row['name'], $row['type'], $row['data']);
         }
 
         $table = new Table($this->io->getOutput());

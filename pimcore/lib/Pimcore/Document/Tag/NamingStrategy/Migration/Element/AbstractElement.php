@@ -45,16 +45,16 @@ abstract class AbstractElement
     private $index;
 
     /**
-     * @var Block|null
+     * @var AbstractBlock|null
      */
     private $parent;
 
     /**
-     * @var Block[]
+     * @var AbstractBlock[]
      */
     private $parents = [];
 
-    public function __construct(string $name, string $type, Block $parent = null)
+    public function __construct(string $name, string $type, AbstractBlock $parent = null)
     {
         $this->name = $name;
         $this->type = $type;
@@ -87,7 +87,7 @@ abstract class AbstractElement
     }
 
     /**
-     * @return Block|null
+     * @return AbstractBlock|null
      */
     public function getParent()
     {
@@ -95,7 +95,7 @@ abstract class AbstractElement
     }
 
     /**
-     * @return Block[]
+     * @return AbstractBlock[]
      */
     public function getParents(): array
     {
@@ -132,7 +132,7 @@ abstract class AbstractElement
         return $strategy->buildTagName($this->getRealName(), $this->getType(), $blockState);
     }
 
-    private function setParent(Block $parent = null)
+    private function setParent(AbstractBlock $parent = null)
     {
         // no parent (root level): we have no index and the realName is the
         // same as the full name
@@ -234,6 +234,16 @@ abstract class AbstractElement
             ));
         }
 
+        /** @var int $index */
+        if (!$parent->hasChildIndex($index)) {
+            throw new \LogicException(sprintf(
+                'Element "%s" has index %d, but parent "%s" does not have this index in its child list',
+                $this->name,
+                $index,
+                $parent->getName()
+            ));
+        }
+
         $this->parent   = $parent;
         $this->parents  = $parentList;
         $this->realName = $realName;
@@ -241,11 +251,11 @@ abstract class AbstractElement
     }
 
     /**
-     * @param Block|null $parent
+     * @param AbstractBlock|null $parent
      *
-     * @return Block[]
+     * @return AbstractBlock[]
      */
-    private function buildParentList(Block $parent): array
+    private function buildParentList(AbstractBlock $parent): array
     {
         $parents = [];
         while (null !== $parent) {
