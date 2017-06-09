@@ -17,7 +17,10 @@ declare(strict_types=1);
 
 namespace Pimcore\Document\Tag\NamingStrategy\Migration\Element;
 
+use Pimcore\Document\Tag\Block\BlockName;
+use Pimcore\Document\Tag\Block\BlockState;
 use Pimcore\Document\Tag\NamingStrategy\Migration\MigrationProcessor;
+use Pimcore\Document\Tag\NamingStrategy\NamingStrategyInterface;
 
 abstract class AbstractElement
 {
@@ -123,6 +126,31 @@ abstract class AbstractElement
     public function getLevel(): int
     {
         return count($this->getParents());
+    }
+
+    public function getBlockState(): BlockState
+    {
+        $blockState = new BlockState();
+        foreach ($this->getParents() as $parent) {
+            $blockState->pushBlock(BlockName::createFromNames($parent->getName(), $parent->getRealName()));
+
+            if (null !== $parent->getIndex()) {
+                $blockState->pushIndex($parent->getIndex());
+            }
+        }
+
+        if (null !== $this->getIndex()) {
+            $blockState->pushIndex($this->getIndex());
+        }
+
+        return $blockState;
+    }
+
+    public function getNameForStrategy(NamingStrategyInterface $strategy): string
+    {
+        $blockState = $this->getBlockState();
+
+        return $strategy->buildTagName($this->getRealName(), $this->getType(), $blockState);
     }
 
     private function process()

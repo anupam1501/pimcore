@@ -35,6 +35,7 @@ use Pimcore\Model\Object\Localizedfield;
 use Pimcore\Model\User;
 use Symfony\Component\Console\Helper\Helper;
 use Symfony\Component\Console\Helper\QuestionHelper;
+use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -115,22 +116,25 @@ class MigrateTagNamingStrategyCommand extends AbstractCommand
             $processor->add($row['name'], $row['type']);
         }
 
-        $element = $processor->getElement('headlineAB_AB-BAB3_AB-B-ABAB_AB-BAB33_1_accordionAB_AB-BAB3_AB-B-ABAB_AB-BAB33_13_1_23_1_2_1');
-        $processor->debugElement($element);
+        $strategy = $this->getContainer()->get('pimcore.document.tag.naming.strategy.nested');
 
-        return;
+        dump(count($result));
+        dump(count($processor->getElements()));
+        dump('');
 
+        $table = new Table($this->io->getOutput());
+        $table->setHeaders(['old', 'new']);
 
-        /*
-        $id = 'AB-BAB3';
-        $id = 'accordionAB_AB-BAB3_AB-B-ABAB_AB-BAB33_13_1_2';
+        foreach ($result as $row) {
+            $element = $processor->getElement($row['name']);
 
-        dump($this->blockInfo[$id]->getName());
-        dump($this->blockInfo[$id]->getRealName());
-        dump($this->blockInfo[$id]->getIndex());
+            $table->addRow([
+                $element->getName(),
+                $element->getNameForStrategy($strategy)
+            ]);
+        }
 
-        dump($this->blockInfo[$id]);
-        */
+        $table->render();
     }
 
     /**
