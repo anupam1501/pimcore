@@ -32,6 +32,11 @@ abstract class AbstractElement
     protected $realName;
 
     /**
+     * @var string
+     */
+    protected $type;
+
+    /**
      * @var int|null
      */
     protected $index;
@@ -51,9 +56,10 @@ abstract class AbstractElement
      */
     private $processed = false;
 
-    public function __construct(string $name, Block $parent = null)
+    public function __construct(string $name, string $type, Block $parent = null)
     {
         $this->name   = $name;
+        $this->type   = $type;
         $this->parent = $parent;
     }
 
@@ -67,6 +73,14 @@ abstract class AbstractElement
         $this->process();
 
         return $this->realName;
+    }
+
+    /**
+     * @return string
+     */
+    public function getType(): string
+    {
+        return $this->type;
     }
 
     /**

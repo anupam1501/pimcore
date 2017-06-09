@@ -124,7 +124,7 @@ class MigrationProcessor
             }
         }
 
-        return new Editable($name, $parent);
+        return new Editable($name, $this->map[$name], $parent);
     }
 
     private function buildBlocks(array $blockNames, array $blockParents): array
@@ -162,7 +162,7 @@ class MigrationProcessor
                 $parent = $blocks[$lastParentName];
             }
 
-            $blocks[$blockName] = new Block($blockName, $parent);
+            $blocks[$blockName] = new Block($blockName, $this->map[$blockName], $parent);
         }
 
         return $blocks;
@@ -299,6 +299,7 @@ class MigrationProcessor
 
         dump([
             'parents'  => $parents,
+            'type'     => $element->getType(),
             'name'     => $element->getName(),
             'realName' => $element->getRealName(),
             'index'    => $element->getIndex(),
