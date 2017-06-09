@@ -23,7 +23,10 @@ use Pimcore\Bundle\AdminBundle\Session\Handler\SimpleAdminSessionHandler;
 use Pimcore\Cache;
 use Pimcore\Console\AbstractCommand;
 use Pimcore\Console\Traits\DryRun;
+use Pimcore\Document\Tag\Block\BlockName;
+use Pimcore\Document\Tag\Block\BlockState;
 use Pimcore\Document\Tag\NamingStrategy\Migration\MigrationListener;
+use Pimcore\Document\Tag\NamingStrategy\Migration\MigrationProcessor;
 use Pimcore\Document\Tag\NamingStrategy\NamingStrategyInterface;
 use Pimcore\Document\Tag\NamingStrategy\NestedNamingStrategy;
 use Pimcore\Model\Document;
@@ -97,7 +100,28 @@ class MigrateTagNamingStrategyCommand extends AbstractCommand
     /**
      * @inheritDoc
      */
-    protected function initialize(InputInterface $input, OutputInterface $output)
+    protected function execute(InputInterface $input, OutputInterface $output)
+    {
+        $documentId = 74;
+
+        $db     = $this->getContainer()->get('database_connection');
+        $result = $db->fetchAll('SELECT name, type FROM documents_elements WHERE documentId = :documentId', [
+            'documentId' => $documentId
+        ]);
+
+        $processor = new MigrationProcessor();
+
+        foreach ($result as $row) {
+            $processor->add($row['name'], $row['type']);
+        }
+
+        $processor->findParentCandidates();
+    }
+
+    /**
+     * @inheritDoc
+     */
+    protected function NOinitialize(InputInterface $input, OutputInterface $output)
     {
         parent::initialize($input, $output);
 
@@ -184,7 +208,7 @@ EOF;
     /**
      * @inheritDoc
      */
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function NOexecute(InputInterface $input, OutputInterface $output)
     {
         try {
             $this->initializeUser($input);
