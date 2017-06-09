@@ -23,8 +23,6 @@ use Pimcore\Bundle\AdminBundle\Session\Handler\SimpleAdminSessionHandler;
 use Pimcore\Cache;
 use Pimcore\Console\AbstractCommand;
 use Pimcore\Console\Traits\DryRun;
-use Pimcore\Document\Tag\Block\BlockName;
-use Pimcore\Document\Tag\Block\BlockState;
 use Pimcore\Document\Tag\NamingStrategy\Migration\MigrationListener;
 use Pimcore\Document\Tag\NamingStrategy\Migration\MigrationProcessor;
 use Pimcore\Document\Tag\NamingStrategy\NamingStrategyInterface;
@@ -36,6 +34,7 @@ use Pimcore\Model\User;
 use Symfony\Component\Console\Helper\Helper;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Helper\Table;
+use Symfony\Component\Console\Helper\TableCell;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -98,12 +97,62 @@ class MigrateTagNamingStrategyCommand extends AbstractCommand
         $this->configureDryRunOption('Do not update editables. Just render documents and gather name mapping');
     }
 
+    protected function execute(InputInterface $input, OutputInterface $output)
+    {
+        $documentIds = $this->getDocumentIds($input);
+        $strategy    = $this->getNamingStrategy($input);
+        $db          = $this->getContainer()->get('database_connection');
+
+        $errored = [];
+
+        foreach ($this->getDocuments($documentIds) as $document) {
+            try {
+                $this->processDocument($document, $db, $strategy);
+            } catch (\Exception $e) {
+                $errored[] = $document->getId();
+                $this->io->error($e->getMessage());
+            }
+        }
+
+        dump('ERRORED');
+        dump($errored);
+    }
+
+    protected function processDocument(Document $document, Connection $db, NamingStrategyInterface $strategy)
+    {
+        $result = $db->fetchAll('SELECT name, type, data FROM documents_elements WHERE documentId = :documentId', [
+            'documentId' => $document->getId()
+        ]);
+
+        $table = new Table($this->io->getOutput());
+        $table->setHeaders([
+            [new TableCell('Document ' . $document->getId(), ['colspan' => 2])],
+            ['Legacy', 'Nested']
+        ]);
+
+        $processor = new MigrationProcessor();
+        foreach ($result as $row) {
+            $processor->add($row['name'], $row['type'], $row['data']);
+        }
+
+        foreach ($result as $row) {
+            $element = $processor->getElement($row['name']);
+
+            $table->addRow([
+                $element->getName(),
+                $element->getNameForStrategy($strategy)
+            ]);
+        }
+
+        $table->render();
+    }
+
     /**
      * @inheritDoc
      */
-    protected function execute(InputInterface $input, OutputInterface $output)
+    protected function excecute(InputInterface $input, OutputInterface $output)
     {
-        $documentId = 74;
+        $documentId = 24;
 
         $db     = $this->getContainer()->get('database_connection');
         $result = $db->fetchAll('SELECT name, type, data FROM documents_elements WHERE documentId = :documentId', [
@@ -116,32 +165,6 @@ class MigrateTagNamingStrategyCommand extends AbstractCommand
         foreach ($result as $row) {
             $processor->add($row['name'], $row['type'], $row['data']);
         }
-
-        $table = new Table($this->io->getOutput());
-        $table->setHeaders(['old', 'new']);
-
-        foreach ($result as $row) {
-            $element = $processor->getElement($row['name']);
-
-            $table->addRow([
-                $element->getName(),
-                $element->getNameForStrategy($strategy)
-            ]);
-        }
-
-        $table->render();
-
-
-
-        return;
-
-        $element = $processor->getElement('contentcontent1_blockcontent133_1');
-        $processor->debugElement($element);
-
-
-        dump(count($result));
-        dump(count($processor->getElements()));
-        dump('');
 
         $table = new Table($this->io->getOutput());
         $table->setHeaders(['old', 'new']);

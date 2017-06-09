@@ -139,7 +139,7 @@ class MigrationProcessor
             return;
         }
 
-        dump(array_keys($this->map));
+        dump($this->map);
 
         $blockNames            = $this->getBlockNames();
         $blockParentCandidates = $this->findBlockParentCandidates($blockNames);
