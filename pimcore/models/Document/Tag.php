@@ -590,6 +590,10 @@ abstract class Tag extends Model\AbstractModel implements Model\Document\Tag\Tag
         $blockState     = $container->get('pimcore.document.tag.block_state_stack')->getCurrentState();
         $namingStrategy = $container->get('pimcore.document.tag.naming.strategy');
 
+        if ($name === 'accordion') {
+            var_dump($blockState);
+        }
+
         $tagName = $namingStrategy->buildTagName($name, $type, $blockState);
 
         $event = new TagNameEvent($type, $name, $blockState, $tagName, $document);

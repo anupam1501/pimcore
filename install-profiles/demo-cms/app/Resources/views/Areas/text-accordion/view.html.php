@@ -12,7 +12,25 @@
         $id = "accordion-" . uniqid();
     ?>
     <div class="panel-group" id="<?= $id ?>">
-        <?php while($this->block("accordion")->loop()) { ?>
+
+
+
+        <?php
+        $block = $this->block("accordion");
+        ?>
+
+        <p class="text-small">
+            <code>
+                <?= $block->getType() ?> -
+                <?= $block->getRealName() ?> -
+                <?= $block->getName() ?>
+            </code>
+        </p>
+
+        <div style="padding: 15px; border: 2px solid limegreen;">
+
+        <?php
+        while($block->loop()) { ?>
             <?php
                 $entryId = $id . "-" . $this->block("accordion")->getCurrent();
             ?>
@@ -31,6 +49,8 @@
                 </div>
             </div>
         <?php } ?>
+
+        </div>
     </div>
 
 

@@ -8,3 +8,6 @@
 
 <?= $this->template('Includes/content-headline.html.php'); ?>
 <?= $this->areablock('content'); ?>
+
+<h3>CONTENT 1</h3>
+<?= $this->areablock('content1'); ?>

@@ -40,6 +40,11 @@ final class LegacyNamingStrategy extends AbstractNamingStrategy
      */
     protected function buildHierarchicalName(string $name, array $blocks, array $indexes): string
     {
+        if ($name === 'accordion') {
+            var_dump($blocks);
+            var_dump($indexes);
+        }
+
         $blockNames = array_map(function (BlockName $block) {
             return $block->getName();
         }, $blocks);
