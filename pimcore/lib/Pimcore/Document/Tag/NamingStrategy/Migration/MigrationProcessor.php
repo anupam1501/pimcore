@@ -65,8 +65,25 @@ class MigrationProcessor
     {
         $this->map[$name] = $type;
         ksort($this->map);
+
+        $this->reset();
     }
 
+    /**
+     * @return AbstractElement[]
+     */
+    public function getElements(): array
+    {
+        $this->process();
+
+        return $this->elements;
+    }
+
+    /**
+     * @param string $name
+     *
+     * @return AbstractElement
+     */
     public function getElement(string $name): AbstractElement
     {
         $this->process();
@@ -76,6 +93,14 @@ class MigrationProcessor
         }
 
         return $this->elements[$name];
+    }
+
+    private function reset()
+    {
+        $this->processed = false;
+        $this->blocks    = [];
+        $this->editables = [];
+        $this->elements  = [];
     }
 
     private function process()
