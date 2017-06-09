@@ -15,41 +15,43 @@ declare(strict_types=1);
  * @license    http://www.pimcore.org/license     GPLv3 and PEL
  */
 
-namespace Pimcore\Document\Tag\NamingStrategy\Migration;
+namespace Pimcore\Document\Tag\NamingStrategy\Migration\Element;
 
-class BlockInfo
+use Pimcore\Document\Tag\NamingStrategy\Migration\MigrationProcessor;
+
+abstract class AbstractElement
 {
     /**
      * @var string
      */
-    private $name;
+    protected $name;
 
     /**
      * @var string
      */
-    private $realName;
-
-    /**
-     * @var BlockInfo|null
-     */
-    private $parent;
-
-    /**
-     * @var BlockInfo[]
-     */
-    private $parents;
+    protected $realName;
 
     /**
      * @var int|null
      */
-    private $index;
+    protected $index;
+
+    /**
+     * @var Block|null
+     */
+    protected $parent;
+
+    /**
+     * @var Block[]
+     */
+    protected $parents;
 
     /**
      * @var bool
      */
-    private $analyzed = false;
+    private $processed = false;
 
-    public function __construct(string $name, BlockInfo $parent = null)
+    public function __construct(string $name, Block $parent = null)
     {
         $this->name   = $name;
         $this->parent = $parent;
@@ -62,7 +64,7 @@ class BlockInfo
 
     public function getRealName(): string
     {
-        $this->analyze();
+        $this->process();
 
         return $this->realName;
     }
@@ -72,7 +74,7 @@ class BlockInfo
      */
     public function getIndex()
     {
-        $this->analyze();
+        $this->process();
 
         return $this->index;
     }
@@ -83,7 +85,7 @@ class BlockInfo
     }
 
     /**
-     * @return BlockInfo[]
+     * @return Block[]
      */
     public function getParents(): array
     {
@@ -96,7 +98,7 @@ class BlockInfo
 
         while (null !== $parent) {
             $parents[] = $parent;
-            $parent    = $parent->parent;
+            $parent    = $parent->getParent();
         }
 
         $this->parents = array_reverse($parents);
@@ -109,22 +111,28 @@ class BlockInfo
         return count($this->getParents());
     }
 
-    private function analyze()
+    private function process()
     {
-        if ($this->analyzed) {
+        if ($this->processed) {
             return;
         }
 
         // no parent (root level): we have no index and the realName is the
         // same as the full name
         if (null === $this->parent) {
-            $this->index    = null;
-            $this->realName = $this->name;
-            $this->analyzed = true;
+            $this->index     = null;
+            $this->realName  = $this->name;
+            $this->processed = true;
 
             return;
         }
 
+        $this->processHierarchy();
+        $this->processed = true;
+    }
+
+    protected function processHierarchy()
+    {
         // find parent names and build pattern to match against
         // e.g.:
         //
@@ -151,6 +159,7 @@ class BlockInfo
         $namePattern = implode('_', array_reverse($namePatternParts));
         $pattern     = '/^(?<realName>.+)' . MigrationProcessor::escapeRegexString($namePattern) . '(?<indexes>[\d_]*)$/';
 
+        // TODO fail if preg_match_all returns more than 1 result?
         if (!preg_match($pattern, $this->name, $matches)) {
             throw new \LogicException(sprintf(
                 'Failed to match "%s" against pattern "%s"',
@@ -183,7 +192,5 @@ class BlockInfo
                 ));
             }
         }
-
-        $this->analyzed = true;
     }
 }

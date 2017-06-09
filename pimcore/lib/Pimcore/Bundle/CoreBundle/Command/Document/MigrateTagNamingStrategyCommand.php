@@ -115,7 +115,22 @@ class MigrateTagNamingStrategyCommand extends AbstractCommand
             $processor->add($row['name'], $row['type']);
         }
 
-        $processor->findParentCandidates();
+        $element = $processor->getElement('headlineAB_AB-BAB3_AB-B-ABAB_AB-BAB33_1_accordionAB_AB-BAB3_AB-B-ABAB_AB-BAB33_13_1_23_1_2_1');
+        $processor->debugElement($element);
+
+        return;
+
+
+        /*
+        $id = 'AB-BAB3';
+        $id = 'accordionAB_AB-BAB3_AB-B-ABAB_AB-BAB33_13_1_2';
+
+        dump($this->blockInfo[$id]->getName());
+        dump($this->blockInfo[$id]->getRealName());
+        dump($this->blockInfo[$id]->getIndex());
+
+        dump($this->blockInfo[$id]);
+        */
     }
 
     /**

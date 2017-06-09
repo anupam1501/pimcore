@@ -17,36 +17,182 @@ declare(strict_types=1);
 
 namespace Pimcore\Document\Tag\NamingStrategy\Migration;
 
+use Pimcore\Document\Tag\NamingStrategy\Migration\Element\AbstractElement;
+use Pimcore\Document\Tag\NamingStrategy\Migration\Element\Block;
+use Pimcore\Document\Tag\NamingStrategy\Migration\Element\Editable;
+
 class MigrationProcessor
 {
-    private $typeMap = [];
-    private $nameMap = [];
-    private $blockNames = [];
-    private $blockInfos;
-    private $blockTypes = ['block', 'areablock'];
-    private $parents = [];
+    /**
+     * Map of elements by name => type
+     *
+     * @var array
+     */
+    private $map = [];
 
+    /**
+     * @var Block[]
+     */
+    private $blocks = [];
+
+    /**
+     * @var Editable[]
+     */
+    private $editables = [];
+
+    /**
+     * @var AbstractElement[]
+     */
+    private $elements = [];
+
+    /**
+     * @var bool
+     */
+    private $processed = false;
+
+    /**
+     * @var array
+     */
+    private $blockTypes = ['block', 'areablock'];
+
+    /**
+     * Add an element mapping
+     *
+     * @param string $name
+     * @param string $type
+     */
     public function add(string $name, string $type)
     {
-        $this->typeMap[$type][] = $name;
-        $this->nameMap[$name]   = $type;
-
-        if ($this->isBlock($type)) {
-            $this->blockNames[] = $name;
-        }
-
-        sort($this->typeMap[$type]);
-        ksort($this->nameMap);
-        sort($this->blockNames);
+        $this->map[$name] = $type;
+        ksort($this->map);
     }
 
-    public function findParentCandidates()
+    public function getElement(string $name): AbstractElement
+    {
+        $this->process();
+
+        if (!isset($this->elements[$name])) {
+            throw new \InvalidArgumentException(sprintf('Element with name "%s" does not exist', $name));
+        }
+
+        return $this->elements[$name];
+    }
+
+    private function process()
+    {
+        if ($this->processed) {
+            return;
+        }
+
+        $blockNames            = $this->getBlockNames();
+        $blockParentCandidates = $this->findBlockParentCandidates($blockNames);
+        $blockParents          = $this->resolveBlockParents($blockParentCandidates);
+
+        $this->blocks    = $this->buildBlocks($blockNames, $blockParents);
+        $this->editables = $this->buildEditables();
+        $this->elements  = array_merge($this->blocks, $this->editables);
+
+        $this->processed = true;
+    }
+
+    private function buildEditables(): array
+    {
+        $blocks = $this->getBlocksSortedByLevel();
+
+        $editables = [];
+        foreach ($this->map as $name => $type) {
+            if ($this->isBlock($type)) {
+                continue;
+            }
+
+            $editables[$name] = $this->buildEditable($name, $blocks);
+        }
+
+        return $editables;
+    }
+
+    private function buildEditable(string $name, array $blocks): Editable
+    {
+        $parent = null;
+        foreach ($blocks as $block) {
+            $matchString = $block->getEditableMatchString();
+            $pattern     = '/^(?<realName>.+)' . self::escapeRegexString($matchString) . '(?<indexes>[\d_]*)$/';
+
+            if (preg_match($pattern, $name, $matches)) {
+                $parent = $block;
+                break;
+            }
+        }
+
+        return new Editable($name, $parent);
+    }
+
+    private function buildBlocks(array $blockNames, array $blockParents): array
+    {
+        $hierarchies = [];
+        foreach ($blockNames as $blockName) {
+            $hierarchy = [];
+
+            $currentBlockName = $blockName;
+            while (isset($blockParents[$currentBlockName])) {
+                $currentBlockName = $blockParents[$currentBlockName];
+                $hierarchy[] = $currentBlockName;
+            }
+
+            $hierarchies[$blockName] = array_reverse($hierarchy);
+        }
+
+        uasort($hierarchies, function ($a, $b) {
+            if (count($a) === count($b)) {
+                return 0;
+            }
+
+            return count($a) < count($b) ? -1 : 1;
+        });
+
+        $blocks = [];
+        foreach ($hierarchies as $blockName => $parentNames) {
+            $parent = null;
+            if (count($parentNames) > 0) {
+                $lastParentName = (array_reverse($parentNames))[0];
+                if (!isset($blocks[$lastParentName])) {
+                    throw new \LogicException(sprintf('Block info for parent "%s" was not found', $lastParentName));
+                }
+
+                $parent = $blocks[$lastParentName];
+            }
+
+            $blocks[$blockName] = new Block($blockName, $parent);
+        }
+
+        return $blocks;
+    }
+
+    /**
+     * Tries to find a list of blocks which could be a block's parent. Example:
+     *
+     *      name:     AB-B-ABAB_AB-BAB33_1
+     *      parents:  [
+     *          AB,
+     *          AB-B
+     *      ]
+     *
+     * We need to catch the AB-B parent, not its ancestor AB, so we first try to find
+     * all candidates, then resolve in resolveBlockParents until only one candidate
+     * is left in the list. As soon as we know AB is AB-B's parent, we can safely
+     * remove AB from the list of candidates for AB-B-ABAB_AB-BAB33_1
+     *
+     * @param array $blockNames
+     *
+     * @return array
+     */
+    private function findBlockParentCandidates(array $blockNames): array
     {
         $parentCandidates = [];
-        foreach ($this->blockNames as $blockName) {
+        foreach ($blockNames as $blockName) {
             $pattern = '/^(?<realName>.+)' . self::escapeRegexString($blockName) . '(?<indexes>[\d_]*)$/';
 
-            foreach ($this->blockNames as $matchingBlockName) {
+            foreach ($blockNames as $matchingBlockName) {
                 if ($blockName === $matchingBlockName) {
                     continue;
                 }
@@ -57,15 +203,21 @@ class MigrationProcessor
             }
         }
 
-        $this->resolveParents($parentCandidates);
-        $this->buildBlockInfos();
+        return $parentCandidates;
     }
 
-    private function resolveParents(array $parentCandidates)
+    /**
+     * @param array $parentCandidates
+     *
+     * @return array
+     */
+    private function resolveBlockParents(array $parentCandidates): array
     {
         $changed = true;
-
         $parents = [];
+
+        // iterate list until we narrowed down the list of candidates to 1 for
+        // every block
         while ($changed) {
             $changed = false;
 
@@ -104,79 +256,54 @@ class MigrationProcessor
             }
         }
 
-        $this->parents = $parents;
+        return $parents;
     }
 
-    private function buildBlockInfos()
+    private function getBlockNames()
     {
-        $hierarchies = [];
-
-        foreach ($this->blockNames as $blockName) {
-            $hierarchy = [];
-
-            $currentBlockName = $blockName;
-            while (isset($this->parents[$currentBlockName])) {
-                $currentBlockName = $this->parents[$currentBlockName];
-                $hierarchy[] = $currentBlockName;
+        $blockNames = [];
+        foreach ($this->map as $name => $type) {
+            if ($this->isBlock($type)) {
+                $blockNames[] = $name;
             }
-
-            $hierarchies[$blockName] = array_reverse($hierarchy);
         }
 
-        uasort($hierarchies, function ($a, $b) {
-            if (count($a) === count($b)) {
+        return $blockNames;
+    }
+
+    /**
+     * Get blocks sorted by deepest level first
+     *
+     * @return Block[]
+     */
+    private function getBlocksSortedByLevel(): array
+    {
+        $blocks = $this->blocks;
+        uasort($blocks, function(Block $a, Block $b) {
+            if ($a->getLevel() === $b->getLevel()) {
                 return 0;
             }
 
-            return count($a) < count($b) ? -1 : 1;
+            return $a->getLevel() < $b->getLevel() ? 1 : -1;
         });
 
-        $blockInfos = [];
-        foreach ($hierarchies as $blockName => $parentNames) {
-            $parent = null;
-            if (count($parentNames) > 0) {
-                $lastParentName = (array_reverse($parentNames))[0];
-                if (!isset($blockInfos[$lastParentName])) {
-                    throw new \LogicException(sprintf('Block info for parent "%s" was not found', $lastParentName));
-                }
+        return $blocks;
+    }
 
-                $parent = $blockInfos[$lastParentName];
-            }
-
-            $blockInfos[$blockName] = new BlockInfo($blockName, $parent);
+    public function debugElement(AbstractElement $element)
+    {
+        $parents = [];
+        foreach ($element->getParents() as $parent) {
+            $parents[] = $parent->getRealName();
         }
 
-        $this->blockInfos = $blockInfos;
-
-        /**
-         * @var string $blockName
-         * @var BlockInfo $blockInfo
-         */
-        foreach ($blockInfos as $blockName => $blockInfo) {
-            $parents = [];
-            foreach ($blockInfo->getParents() as $parent) {
-                $parents[] = $parent->getRealName();
-            }
-
-            dump([
-                'parents'  => $parents,
-                'name'     => $blockInfo->getName(),
-                'realName' => $blockInfo->getRealName(),
-                'index'    => $blockInfo->getIndex(),
-                'level'    => $blockInfo->getLevel(),
-            ]);
-        }
-
-        /*
-        $id = 'AB-BAB3';
-        $id = 'accordionAB_AB-BAB3_AB-B-ABAB_AB-BAB33_13_1_2';
-
-        dump($this->blockInfo[$id]->getName());
-        dump($this->blockInfo[$id]->getRealName());
-        dump($this->blockInfo[$id]->getIndex());
-
-        dump($this->blockInfo[$id]);
-        */
+        dump([
+            'parents'  => $parents,
+            'name'     => $element->getName(),
+            'realName' => $element->getRealName(),
+            'index'    => $element->getIndex(),
+            'level'    => $element->getLevel(),
+        ]);
     }
 
     private function isBlock(string $type): bool
